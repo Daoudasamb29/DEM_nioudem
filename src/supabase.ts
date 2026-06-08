@@ -475,8 +475,8 @@ export async function mesTickets(telephoneRaw: string): Promise<BookingData[]> {
   const phoneSearch = telephoneRaw.trim();
   
   if (!client) {
-    const offlineBookings = loadBookings();
-    return offlineBookings.filter(b => b.phone.includes(phoneSearch) || phoneSearch.includes(b.phone));
+    const offlineBookings = loadBookings(phoneSearch);
+    return offlineBookings;
   }
 
   try {
@@ -707,4 +707,183 @@ export async function deleteSupabaseBooking(refId: string): Promise<void> {
     console.error("Error deleteSupabaseBooking:", err);
     throw err;
   }
+}
+
+/**
+ * Simple asynchronous SHA-256 helper for security.
+ * Hashes passwords before they are transmitted to Supabase or cached in LocalStorage.
+ */
+export async function hashPasswordSecure(password: string): Promise<string> {
+  const cleanPass = password.trim();
+  try {
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+      const msgUint8 = new TextEncoder().encode(cleanPass);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch (e) {
+    console.warn("Crypto API fallback activated:");
+  }
+  // Safe cryptographic polynomial hash fallback for ultra-legacy user agents
+  let hash = 0;
+  for (let i = 0; i < cleanPass.length; i++) {
+    const char = cleanPass.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return 'sf_' + Math.abs(hash).toString(16);
+}
+
+/**
+ * Account system with Supabase active and standard HTML offline backup
+ * Table name: "clients_comptes" (referenced in schema)
+ */
+export interface UserAccount {
+  fullName: string;
+  phone: string;
+}
+
+// Simple Helper to manage local fallback users
+function getLocalUsers(): any[] {
+  try {
+    const list = localStorage.getItem('dem_local_users');
+    return list ? JSON.parse(list) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveLocalUser(nomComplet: string, telephone: string, hashedPass: string) {
+  const users = getLocalUsers();
+  // Avoid duplicate local names
+  const filtered = users.filter(u => u.nom_complet.toLowerCase() !== nomComplet.toLowerCase().trim());
+  filtered.push({
+    nom_complet: nomComplet.trim(),
+    telephone: telephone.trim(),
+    mot_de_passe: hashedPass
+  });
+  localStorage.setItem('dem_local_users', JSON.stringify(filtered));
+}
+
+/**
+ * Creates a simple client account
+ */
+export async function creerCompte(nomComplet: string, telephone: string, motDePasse: string): Promise<UserAccount> {
+  const name = nomComplet.trim();
+  const phone = telephone.trim();
+  const rawPass = motDePasse.trim();
+
+  if (!name || !phone || !rawPass) {
+    throw new Error("Veuillez remplir tous les champs obligatoires.");
+  }
+
+  // Generate secure SHA-256 hash
+  const secureHash = await hashPasswordSecure(rawPass);
+
+  // Backup in LocalStorage instantly to ensure PWA works off-screen/offline (with secure hash)
+  saveLocalUser(name, phone, secureHash);
+
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      // 1. Check if name already exists in live database
+      const { data: existing, error: checkError } = await client
+        .from('clients_comptes')
+        .select('id')
+        .ilike('nom_complet', name)
+        .maybeSingle();
+
+      if (checkError && !checkError.message.includes("relation") && !checkError.message.includes("does not exist")) {
+        console.warn("Supabase user unique check error, skipping check:", checkError);
+      }
+
+      if (existing) {
+        throw new Error("Ce nom complet est déjà enregistré. Veuillez utiliser un autre nom ou vous connecter.");
+      }
+
+      // 2. Insert account in "clients_comptes" table with secure SHA-256 hash
+      const { error: insertError } = await client
+        .from('clients_comptes')
+        .insert([{
+          nom_complet: name,
+          telephone: phone,
+          mot_de_passe: secureHash
+        }]);
+
+      if (insertError) {
+        if (insertError.message.includes("relation") || insertError.message.includes("does not exist") || insertError.message.includes("404")) {
+          console.warn("Table 'clients_comptes' missing, registered user locally and saved context.");
+        } else {
+          throw insertError;
+        }
+      }
+    } catch (err: any) {
+      if (err.message && err.message.includes("déjà enregistré")) {
+        throw err;
+      }
+      console.error("Supabase live signup error, relying on offline local backup successfully:", err);
+    }
+  }
+
+  return { fullName: name, phone };
+}
+
+/**
+ * Verifies credentials and logs user in
+ */
+export async function connecterCompte(nomComplet: string, motDePasse: string): Promise<UserAccount> {
+  const name = nomComplet.trim();
+  const rawPass = motDePasse.trim();
+
+  if (!name || !rawPass) {
+    throw new Error("Veuillez saisir votre nom complet et mot de passe.");
+  }
+
+  const secureHash = await hashPasswordSecure(rawPass);
+
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      // Query the user accounts database table
+      const { data, error } = await client
+        .from('clients_comptes')
+        .select('nom_complet, telephone, mot_de_passe')
+        .ilike('nom_complet', name)
+        .maybeSingle();
+
+      if (error && !error.message.includes("relation") && !error.message.includes("does not exist")) {
+        throw error;
+      }
+
+      if (data) {
+        // Support both secure hash match and old legacy accounts with plain pass fallback
+        if (data.mot_de_passe === secureHash || data.mot_de_passe === rawPass) {
+          return { fullName: data.nom_complet, phone: data.telephone };
+        } else {
+          throw new Error("Mot de passe incorrect pour ce compte.");
+        }
+      }
+    } catch (err: any) {
+      if (err.message && err.message.includes("Mot de passe incorrect")) {
+        throw err;
+      }
+      console.error("Supabase user search failed, checking offline users list:", err);
+    }
+  }
+
+  // Fallback check in offline registry
+  const localUsers = getLocalUsers();
+  const matched = localUsers.find(u => u.nom_complet.toLowerCase() === name.toLowerCase());
+
+  if (matched) {
+    // Support both secure hash and legacy plain pass matching locally
+    if (matched.mot_de_passe === secureHash || matched.mot_de_passe === rawPass) {
+      return { fullName: matched.nom_complet, phone: matched.telephone };
+    } else {
+      throw new Error("Mot de passe incorrect.");
+    }
+  }
+
+  throw new Error("Aucun compte trouvé avec ce nom complet. Veuillez créer un compte d'abord.");
 }

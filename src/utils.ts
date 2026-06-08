@@ -57,9 +57,10 @@ export function formatFrenchDate(dateStr: string): string {
 /**
  * Save booking list directly to localStorage
  */
-export function saveBookings(bookings: BookingData[]): void {
+export function saveBookings(bookings: BookingData[], phone?: string): void {
   try {
-    localStorage.setItem('niou_dem_bookings', JSON.stringify(bookings));
+    const key = phone ? `niou_dem_bookings_${phone.trim().replace(/[^0-9]/g, '')}` : 'niou_dem_bookings';
+    localStorage.setItem(key, JSON.stringify(bookings));
   } catch (e) {
     console.error('Failed to save bookings to localStorage', e);
   }
@@ -68,9 +69,10 @@ export function saveBookings(bookings: BookingData[]): void {
 /**
  * Load booking list directly from localStorage
  */
-export function loadBookings(): BookingData[] {
+export function loadBookings(phone?: string): BookingData[] {
   try {
-    const data = localStorage.getItem('niou_dem_bookings');
+    const key = phone ? `niou_dem_bookings_${phone.trim().replace(/[^0-9]/g, '')}` : 'niou_dem_bookings';
+    const data = localStorage.getItem(key);
     return data ? JSON.parse(data) : [];
   } catch (e) {
     console.error('Failed to load bookings from localStorage', e);

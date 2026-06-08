@@ -36,5 +36,5 @@ export interface BookingData {
   createdAt: string;
 }
 
-export type ScreenState = 'home' | 'standard-form' | 'aibd-form' | 'ticket' | 'my-tickets';
+export type ScreenState = 'home' | 'standard-form' | 'aibd-form' | 'ticket' | 'my-tickets' | 'login';
 

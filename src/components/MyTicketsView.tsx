@@ -37,6 +37,7 @@ interface MyTicketsViewProps {
   onDeleteBooking: (id: string) => void;
   onUpdateBookings: (updated: BookingData[]) => void;
   onSearchPhone?: (phone: string) => void;
+  clientPhone?: string;
 }
 
 export default function MyTicketsView({
@@ -45,7 +46,8 @@ export default function MyTicketsView({
   onSelectBooking,
   onDeleteBooking,
   onUpdateBookings,
-  onSearchPhone
+  onSearchPhone,
+  clientPhone
 }: MyTicketsViewProps) {
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState<string>('');
@@ -59,7 +61,9 @@ export default function MyTicketsView({
   const [syncing, setSyncing] = useState(false);
 
   // Telephone Search variables
-  const [phoneSearch, setPhoneSearch] = useState('');
+  const [phoneSearch, setPhoneSearch] = useState(() => {
+    return clientPhone ? clientPhone.replace(/[^0-9]/g, '') : '';
+  });
   const [loadingSearch, setLoadingSearch] = useState(false);
   const [searchedTickets, setSearchedTickets] = useState<BookingData[] | null>(null);
   const [searchError, setSearchError] = useState('');

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plane, Bus, Ticket, ChevronRight, ArrowRight } from 'lucide-react';
+import { Plane, Bus, Ticket, ChevronRight, ArrowRight, LogOut } from 'lucide-react';
 import { BookingData } from '../types';
 import senegalTravelBanner from '../assets/images/senegal_travel_banner_1779489253831.png';
 import logo from '../assets/images/logo.png';
@@ -10,6 +10,8 @@ interface HomeViewProps {
   onViewMyTickets: () => void;
   savedBookingsCount: number;
   availableTrips?: Array<{ from: string; to: string; price: number }>;
+  onLogout?: () => void;
+  clientFullName?: string;
 }
 
 export default function HomeView({
@@ -17,7 +19,9 @@ export default function HomeView({
   onSelectAibdTrip,
   onViewMyTickets,
   savedBookingsCount,
-  availableTrips
+  availableTrips,
+  onLogout,
+  clientFullName
  }: HomeViewProps) {
   
   // Track scroll position to power dynamic premium layout transitions
@@ -114,10 +118,16 @@ export default function HomeView({
           {/* Slogan & Welcome Greeting Label with dynamic opacity fade */}
           <div 
             style={{ opacity: welcomeTextOpacity }}
-            className="flex flex-col mt-2.5 drop-shadow-md select-none text-left origin-left transition-opacity duration-75 ease-out"
+            className="flex flex-col mt-2.5 drop-shadow-md select-none text-left origin-left transition-opacity duration-75 ease-out w-72"
           >
-            <span className="text-indigo-200 text-xs font-semibold tracking-wider uppercase">Bonjour 👋</span>
-            <h2 className="text-white text-3xl font-black mt-1 leading-none tracking-tight">Où allez-vous ?</h2>
+            <div className="flex items-start justify-between w-full pr-4">
+              <div>
+                <span className="text-indigo-200 text-xs font-semibold tracking-wider uppercase block">
+                  Bonjour, {clientFullName ? clientFullName.split(' ')[0] : 'Voyageur👋'}
+                </span>
+                <h2 className="text-white text-2xl font-black mt-1 leading-none tracking-tight">Où allez-vous ?</h2>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -256,6 +266,20 @@ export default function HomeView({
             </div>
           </div>
         </div>
+
+        {/* LOGOUT BUTTON */}
+        {onLogout && (
+          <div className="mt-6">
+            <button
+              type="button"
+              onClick={onLogout}
+              className="w-full bg-red-50/70 hover:bg-red-100/80 active:scale-[0.98] text-red-600 border border-red-200 font-bold py-3 px-4 rounded-xl shadow-sm transition-all duration-150 flex items-center justify-center gap-2 text-sm cursor-pointer"
+            >
+              <LogOut className="w-4 h-4 text-red-500" />
+              <span>Déconnexion</span>
+            </button>
+          </div>
+        )}
 
       </div>
     </div>

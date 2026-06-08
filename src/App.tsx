@@ -13,7 +13,8 @@ import {
   insertSupabaseBooking, 
   deleteSupabaseBooking, 
   chargerTrajets, 
-  confirmerReservation 
+  confirmerReservation,
+  mesTickets
 } from './supabase';
 
 // Component Views
@@ -22,17 +23,69 @@ import StandardFormView from './components/StandardFormView';
 import AibdFormView from './components/AibdFormView';
 import TicketView from './components/TicketView';
 import MyTicketsView from './components/MyTicketsView';
+import LoginView from './components/LoginView';
 
 import { sendReservationEmail } from './utils/emailService';
 
 export default function App() {
-  const [screen, setScreen] = useState<ScreenState>('home');
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
+    return localStorage.getItem('dem_is_logged_in') === 'true';
+  });
+
+  const [screen, setScreen] = useState<ScreenState>(() => {
+    const logged = localStorage.getItem('dem_is_logged_in') === 'true';
+    return logged ? 'home' : 'login';
+  });
+
   const [bookings, setBookings] = useState<BookingData[]>([]);
   const [activeBooking, setActiveBooking] = useState<BookingData | null>(null);
   const [emailStatusMessage, setEmailStatusMessage] = useState<string | null>(null);
   
   const [clientPhone, setClientPhone] = useState<string>(() => localStorage.getItem('dem_client_phone') || '');
   const [clientFullName, setClientFullName] = useState<string>(() => localStorage.getItem('dem_client_fullname') || '');
+
+  const handleLoginSuccess = (name: string, phone: string) => {
+    setClientFullName(name);
+    setClientPhone(phone);
+    localStorage.setItem('dem_client_fullname', name);
+    localStorage.setItem('dem_client_phone', phone);
+    localStorage.setItem('dem_is_logged_in', 'true');
+    setIsLoggedIn(true);
+    setScreen('home');
+
+    // Instantly load locally backed up bookings for this user
+    const local = loadBookings(phone);
+    setBookings(local);
+
+    // Sync bookings for the newly logged user immediately
+    if (isSupabaseConfigured()) {
+      setLoadingOverlay(true);
+      setOverlayMessage('Synchronisation de vos réservations...');
+      import('./supabase').then((moduleObj) => {
+        moduleObj.mesTickets(phone).then((res) => {
+          if (res) {
+            setBookings(res);
+            saveBookings(res, phone);
+          }
+        }).catch((err) => {
+          console.error("Retrieval error for login success bookings:", err);
+        }).finally(() => {
+          setLoadingOverlay(false);
+        });
+      });
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('dem_is_logged_in');
+    localStorage.removeItem('dem_client_fullname');
+    localStorage.removeItem('dem_client_phone');
+    setClientFullName('');
+    setClientPhone('');
+    setIsLoggedIn(false);
+    setBookings([]);
+    setScreen('login');
+  };
 
   const handleFormValueChange = (fields: { phone?: string; fullName?: string }) => {
     if (fields.phone !== undefined) {
@@ -72,8 +125,10 @@ export default function App() {
 
   // Load bookings from localStorage & Supabase on mount
   useEffect(() => {
-    // 1. Instantly load locally backed-up bookings
-    const local = loadBookings();
+    const userPhoneOnMount = localStorage.getItem('dem_client_phone') || undefined;
+
+    // 1. Instantly load locally backed-up bookings for this specific user
+    const local = loadBookings(userPhoneOnMount);
     setBookings(local);
 
     // Helper to normalize strings for accent/case insensitive comparison
@@ -112,12 +167,12 @@ export default function App() {
         setLoadingTrips(false);
       });
 
-    // 3. Fetch from Supabase database if configured
-    if (isSupabaseConfigured()) {
-      fetchSupabaseBookings().then((sbBookings) => {
-        if (sbBookings && sbBookings.length > 0) {
+    // 3. Fetch from Supabase database if configured for the logged-in user
+    if (isSupabaseConfigured() && userPhoneOnMount) {
+      mesTickets(userPhoneOnMount).then((sbBookings) => {
+        if (sbBookings) {
           setBookings(sbBookings);
-          saveBookings(sbBookings); // Sync local backup
+          saveBookings(sbBookings, userPhoneOnMount); // Sync local backup
         }
       }).catch(err => {
         console.error("Supabase load error:", err);
@@ -129,7 +184,7 @@ export default function App() {
   const handleAddNewBooking = async (newBooking: BookingData) => {
     const updated = [newBooking, ...bookings];
     setBookings(updated);
-    saveBookings(updated);
+    saveBookings(updated, clientPhone || undefined);
 
     if (isSupabaseConfigured() && !newBooking.db_id) {
       try {
@@ -191,7 +246,7 @@ export default function App() {
       // Push to stack
       const updated = [newBooking, ...bookings];
       setBookings(updated);
-      saveBookings(updated);
+      saveBookings(updated, clientPhone || undefined);
 
       setActiveBooking(newBooking);
       setScreen('ticket');
@@ -232,7 +287,7 @@ export default function App() {
       };
       const updated = [fallbackBooking, ...bookings];
       setBookings(updated);
-      saveBookings(updated);
+      saveBookings(updated, clientPhone || undefined);
       setActiveBooking(fallbackBooking);
       setScreen('ticket');
 
@@ -303,7 +358,7 @@ export default function App() {
       // Push to stack
       const updated = [newBooking, ...bookings];
       setBookings(updated);
-      saveBookings(updated);
+      saveBookings(updated, clientPhone || undefined);
 
       setActiveBooking(newBooking);
       setScreen('ticket');
@@ -343,7 +398,7 @@ export default function App() {
       };
       const updated = [fallbackBooking, ...bookings];
       setBookings(updated);
-      saveBookings(updated);
+      saveBookings(updated, clientPhone || undefined);
       setActiveBooking(fallbackBooking);
       setScreen('ticket');
 
@@ -382,7 +437,7 @@ export default function App() {
   const handleDeleteBooking = async (id: string) => {
     const updated = bookings.filter(b => b.id !== id);
     setBookings(updated);
-    saveBookings(updated);
+    saveBookings(updated, clientPhone || undefined);
 
     if (isSupabaseConfigured()) {
       try {
@@ -408,6 +463,21 @@ export default function App() {
         
         <AnimatePresence mode="wait">
           
+          {screen === 'login' && (
+            <motion.div
+              key="login"
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              variants={pageVariants}
+              className="flex-1 flex flex-col h-full"
+            >
+              <LoginView
+                onLoginSuccess={handleLoginSuccess}
+              />
+            </motion.div>
+          )}
+
           {screen === 'home' && (
             <motion.div
               key="home"
@@ -423,6 +493,8 @@ export default function App() {
                 onViewMyTickets={() => setScreen('my-tickets')}
                 savedBookingsCount={bookings.length}
                 availableTrips={availableTrips}
+                onLogout={handleLogout}
+                clientFullName={clientFullName}
               />
             </motion.div>
           )}
@@ -501,9 +573,10 @@ export default function App() {
                 onDeleteBooking={handleDeleteBooking}
                 onUpdateBookings={(updated) => {
                   setBookings(updated);
-                  saveBookings(updated);
+                  saveBookings(updated, clientPhone || undefined);
                 }}
                 onSearchPhone={(phone) => handleFormValueChange({ phone })}
+                clientPhone={clientPhone}
               />
             </motion.div>
           )}
