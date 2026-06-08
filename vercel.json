@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/logo.png",
+      "destination": "/src/assets/images/logo.png"
+    },
+    {
+      "source": "/assets/images/logo.png",
+      "destination": "/src/assets/images/logo.png"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
