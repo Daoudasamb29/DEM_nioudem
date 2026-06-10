@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ArrowLeft, Calendar, Clock, User, Phone, MapPin, Briefcase, Snowflake, Check, HelpCircle } from 'lucide-react';
 
 interface AibdFormViewProps {
@@ -45,6 +45,9 @@ export default function AibdFormView({
   // Options states (Baggage checked, AC unchecked by default)
   const [baggage, setBaggage] = useState(true);
   const [ac, setAc] = useState(false);
+
+  const dateInputRef = useRef<HTMLInputElement>(null);
+  const timeInputRef = useRef<HTMLInputElement>(null);
   
   // Validation tracking
   const [errors, setErrors] = useState<{
@@ -69,6 +72,16 @@ export default function AibdFormView({
     // Validate departure time
     if (date && !time) {
       newErrors.time = 'L\'heure de départ souhaitée est requise.';
+    } else if (date && time && date === today) {
+      const [hStr, mStr] = time.split(':');
+      const targetHour = parseInt(hStr, 10);
+      const targetMin = parseInt(mStr || '0', 10);
+      const now = new Date();
+      if (!isNaN(targetHour)) {
+        if (now.getHours() > targetHour || (now.getHours() === targetHour && now.getMinutes() >= targetMin)) {
+          newErrors.time = 'Cette heure de départ est déjà passée. Veuillez choisir une heure future.';
+        }
+      }
     }
 
     // Validate passenger name
@@ -213,16 +226,11 @@ export default function AibdFormView({
           </div>
           
           <div 
-            className={`flex items-center gap-3 bg-white rounded-xl px-3.5 py-3 transition-colors relative overflow-hidden cursor-pointer ${
+            className={`flex items-center gap-3 bg-white rounded-xl px-3.5 py-2 transition-all ${
               errors.date ? 'border-2 border-red-500' : 'border-1.5 border-[#F4841C]'
             }`}
           >
-            <Calendar className="w-5 h-5 text-[#F4841C] flex-shrink-0 z-0" />
-            <span className="text-slate-800 text-sm font-semibold z-0">
-              {date ? date.split('-').reverse().join('/') : "Sélectionner une date..."}
-            </span>
-            
-            {/* Transparent overlay input covering the entire container so it's fully tappable on all iOS/Android screens */}
+            <Calendar className="w-5 h-5 text-[#F4841C] flex-shrink-0" />
             <input 
               type="date"
               min={today}
@@ -231,7 +239,8 @@ export default function AibdFormView({
                 setDate(e.target.value);
                 if (errors.date) setErrors(prev => ({ ...prev, date: undefined }));
               }}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              className="w-full bg-transparent border-0 outline-none text-slate-800 text-sm font-semibold cursor-pointer min-h-[32px] focus:ring-0"
+              style={{ colorScheme: 'light' }}
             />
           </div>
           
@@ -266,16 +275,11 @@ export default function AibdFormView({
             </label>
             
             <div 
-              className={`flex items-center gap-3 bg-slate-50 border rounded-xl px-3.5 py-3 transition-colors relative overflow-hidden cursor-pointer ${
+              className={`flex items-center gap-3 bg-slate-50 border rounded-xl px-3.5 py-2 transition-colors ${
                 errors.time ? 'border-red-500 bg-red-50/10' : 'border-slate-200 focus-within:border-[#F4841C] focus-within:bg-white'
               }`}
             >
-              <Clock className="w-5 h-5 text-[#F4841C] flex-shrink-0 z-0" />
-              <span className="text-slate-800 text-sm font-semibold z-0">
-                {time ? time : "Définir l'Heure (ex: 14:30)..."}
-              </span>
-              
-              {/* Invisible native input over the container box to respond to native mobile tap instantly */}
+              <Clock className="w-5 h-5 text-[#F4841C] flex-shrink-0" />
               <input 
                 type="time"
                 value={time}
@@ -283,7 +287,8 @@ export default function AibdFormView({
                   setTime(e.target.value);
                   if (errors.time) setErrors(prev => ({ ...prev, time: undefined }));
                 }}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                className="w-full bg-transparent border-0 outline-none text-slate-800 text-sm font-semibold cursor-pointer min-h-[32px] focus:ring-0"
+                style={{ colorScheme: 'light' }}
               />
             </div>
             

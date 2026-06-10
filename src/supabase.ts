@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS trajets_disponibles (
   ville_arrivee TEXT NOT NULL,
   heure TEXT NOT NULL,
   prix NUMERIC NOT NULL,
+  places_max INTEGER DEFAULT 8 NOT NULL, -- Choisi par les chauffeurs via l'app chauffeur
   actif BOOLEAN DEFAULT true NOT NULL
 );
 
@@ -206,6 +207,131 @@ export async function chargerHoraires(villeDepart: string, villeArrivee: string)
     }
     console.error('Erreur chargerHoraires:', err);
     throw err;
+  }
+}
+
+export interface HoraireCapacite {
+  heure: string;
+  places_max: number;
+}
+
+/**
+ * 2b. chargerHorairesEtCapacites(villeDepart, villeArrivee)
+ * Charge à la fois les horaires et le nombre de places maximum configurés par les chauffeurs depuis trajets_disponibles.
+ */
+export async function chargerHorairesEtCapacites(villeDepart: string, villeArrivee: string): Promise<HoraireCapacite[]> {
+  const client = getSupabaseClient();
+  const defaultCapacity = 8; // Valeur par défaut si non spécifié ou hors ligne
+  
+  if (!client) {
+    const staticHours = (villeArrivee.toLowerCase().includes('aibd') || villeDepart.toLowerCase().includes('aibd'))
+      ? ['08h30', '12h00', '16h30', '20h00']
+      : ['07h00', '10h30', '14h00'];
+    return staticHours.map(h => ({ heure: h, places_max: defaultCapacity }));
+  }
+  
+  try {
+    const { data, error } = await client
+      .from('trajets_disponibles')
+      .select('heure, places_max')
+      .eq('ville_depart', villeDepart)
+      .eq('ville_arrivee', villeArrivee)
+      .eq('actif', true);
+    
+    if (error) throw error;
+    
+    if (!data || data.length === 0) {
+      const staticHours = (villeArrivee.toLowerCase().includes('aibd') || villeDepart.toLowerCase().includes('aibd'))
+        ? ['08h30', '12h00', '16h30', '20h00']
+        : ['07h00', '10h30', '14h00'];
+      return staticHours.map(h => ({ heure: h, places_max: defaultCapacity }));
+    }
+    
+    // Agrégation par heure unique et sélection du max places_max configuré par les chauffeurs
+    const mapHours = new Map<string, number>();
+    data.forEach((t: any) => {
+      if (t.heure) {
+        const cap = (typeof t.places_max === 'number' && t.places_max > 0) ? t.places_max : defaultCapacity;
+        const existing = mapHours.get(t.heure) || 0;
+        mapHours.set(t.heure, Math.max(existing, cap));
+      }
+    });
+
+    return Array.from(mapHours.entries()).map(([heure, places_max]) => ({
+      heure,
+      places_max
+    }));
+  } catch (err: any) {
+    console.warn("Erreur chargerHorairesEtCapacites, activation du fallback:", err);
+    const staticHours = (villeArrivee.toLowerCase().includes('aibd') || villeDepart.toLowerCase().includes('aibd'))
+      ? ['08h30', '12h00', '16h30', '20h00']
+      : ['07h00', '10h30', '14h00'];
+    return staticHours.map(h => ({ heure: h, places_max: defaultCapacity }));
+  }
+}
+
+/**
+ * OBTENIR LE NOMBRE DE PLACES OCCUPEES PAR HORAIRE
+ * Charge les réservations pour un trajet et une date donnés afin de compter les sièges occupés (limite de 4 places par horaire).
+ */
+export async function obtenirPlacesOccupees(date: string, from: string, to: string): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  const client = getSupabaseClient();
+  
+  if (!client) {
+    try {
+      // Offline fallback: Search all local storage keys containing client bookings
+      let allLocal: BookingData[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('niou_dem_bookings')) {
+          const val = localStorage.getItem(key);
+          if (val) {
+            allLocal = allLocal.concat(JSON.parse(val));
+          }
+        }
+      }
+      
+      allLocal.forEach(b => {
+        if (
+          b.date === date &&
+          b.from.toLowerCase() === from.toLowerCase() &&
+          b.to.toLowerCase() === to.toLowerCase()
+        ) {
+          const hr = b.time;
+          if (hr) {
+            counts[hr] = (counts[hr] || 0) + 1;
+          }
+        }
+      });
+    } catch (e) {
+      console.error("Local count error offline:", e);
+    }
+    return counts;
+  }
+
+  try {
+    const { data, error } = await client
+      .from('reservations')
+      .select('heure_depart')
+      .eq('date_voyage', date)
+      .eq('ville_depart', from)
+      .eq('ville_arrivee', to);
+
+    if (error) throw error;
+
+    if (data) {
+      data.forEach((row: any) => {
+        const hr = row.heure_depart;
+        if (hr) {
+          counts[hr] = (counts[hr] || 0) + 1;
+        }
+      });
+    }
+    return counts;
+  } catch (err: any) {
+    console.error("Erreur obtentirPlacesOccupees:", err);
+    return counts;
   }
 }
 

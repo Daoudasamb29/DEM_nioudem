@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Calendar, User, Phone, MapPin, Flag, HelpCircle } from 'lucide-react';
-import { chargerHoraires } from '../supabase';
+import { chargerHorairesEtCapacites, obtenirPlacesOccupees } from '../supabase';
 
 interface StandardFormViewProps {
   from: string;
@@ -45,7 +45,11 @@ export default function StandardFormView({
   });
   const [departureAddress, setDepartureAddress] = useState('');
   const [availableHours, setAvailableHours] = useState<string[]>([]);
+  const [hoursCapacity, setHoursCapacity] = useState<Record<string, number>>({});
+  const [bookedSeats, setBookedSeats] = useState<Record<string, number>>({});
   const [loadingHours, setLoadingHours] = useState(false);
+  
+  const dateInputRef = useRef<HTMLInputElement>(null);
   
   // Error state for validation tracking
   const [errors, setErrors] = useState<{
@@ -56,23 +60,103 @@ export default function StandardFormView({
     departureAddress?: string;
   }>({});
 
+  // Get current date string for min constraint to avoid GMT/UTC mismatch on mobile (travel cannot be in past)
+  const getLocalDateString = (offsetDays = 0) => {
+    const d = new Date();
+    if (offsetDays !== 0) {
+      d.setDate(d.getDate() + offsetDays);
+    }
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const today = getLocalDateString(0);
+  const tomorrow = getLocalDateString(1);
+  const dayAfter = getLocalDateString(2);
+
+  const isHourPassed = (hourStr: string) => {
+    // Format is HHhMM (e.g. "07h00", "14h30") or HH:MM
+    const cleaned = hourStr.toLowerCase().replace('h', ':');
+    const parts = cleaned.split(':');
+    const targetHour = parseInt(parts[0], 10);
+    const targetMin = parseInt(parts[1] || '0', 10);
+
+    if (isNaN(targetHour)) return false;
+
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMin = now.getMinutes();
+
+    if (currentHour > targetHour) {
+      return true;
+    }
+    if (currentHour === targetHour && currentMin >= targetMin) {
+      return true;
+    }
+    return false;
+  };
+
+
   useEffect(() => {
     if (!date) {
       setAvailableHours([]);
+      setBookedSeats({});
+      setHoursCapacity({});
       return;
     }
     setLoadingHours(true);
-    chargerHoraires(from, to)
-      .then((hours) => {
-        setAvailableHours(hours);
-        if (hours && hours.length > 0) {
-          setTime(hours[0]);
+    
+    Promise.all([
+      chargerHorairesEtCapacites(from, to),
+      obtenirPlacesOccupees(date, from, to)
+    ])
+      .then(([hoursData, counts]) => {
+        const hoursList = hoursData.map(h => h.heure);
+        const capacityMap: Record<string, number> = {};
+        hoursData.forEach(h => {
+          capacityMap[h.heure] = h.places_max;
+        });
+
+        setAvailableHours(hoursList);
+        setHoursCapacity(capacityMap);
+        setBookedSeats(counts);
+        
+        // Auto select first schedule which has remaining seats (strictly less than max limit) and is not passed
+        if (hoursList && hoursList.length > 0) {
+          const firstNonFull = hoursList.find(h => {
+            const seatsTaken = counts[h] || 0;
+            const limit = capacityMap[h] || 8;
+            const isFull = seatsTaken >= limit;
+            const isPassed = date === today && isHourPassed(h);
+            return !isFull && !isPassed;
+          });
+          if (firstNonFull) {
+            setTime(firstNonFull);
+          } else {
+            setTime(''); // All are full or passed
+          }
         }
       })
       .catch((err) => {
-        console.error("Erreur de chargement des horaires:", err);
-        setAvailableHours(['07h00', '10h30', '14h00']);
-        setTime('07h00');
+        console.error("Erreur de chargement des horaires ou des places:", err);
+        const fallbackHours = ['07h00', '10h30', '14h00'];
+        setAvailableHours(fallbackHours);
+        const fallbackCapacity: Record<string, number> = { '07h00': 8, '10h30': 8, '14h00': 8 };
+        setHoursCapacity(fallbackCapacity);
+        
+        // Fallback offline count attempt
+        obtenirPlacesOccupees(date, from, to).then(counts => {
+          setBookedSeats(counts);
+          const firstNonFull = fallbackHours.find(h => {
+            const seatsTaken = counts[h] || 0;
+            const isFull = seatsTaken >= (fallbackCapacity[h] || 8);
+            const isPassed = date === today && isHourPassed(h);
+            return !isFull && !isPassed;
+          });
+          setTime(firstNonFull || fallbackHours[0]);
+        });
       })
       .finally(() => {
         setLoadingHours(false);
@@ -89,9 +173,18 @@ export default function StandardFormView({
       newErrors.date = 'La date du voyage est requise.';
     }
 
-    // Validate time (strictly required after date is picked)
+    // Validate time (strictly required after date is picked) and capacity / expired hour
     if (date && !time) {
       newErrors.time = 'Veuillez sélectionner l\'un des horaires de départ.';
+    } else if (date && time) {
+      const seatsTaken = bookedSeats[time] || 0;
+      const limit = hoursCapacity[time] || 8;
+      const isPassed = date === today && isHourPassed(time);
+      if (isPassed) {
+        newErrors.time = 'Cet horaire de départ est déjà passé. Veuillez choisir un autre horaire.';
+      } else if (seatsTaken >= limit) {
+        newErrors.time = `Cet horaire est désormais complet (${limit} places déjà réservées). Veuillez choisir un autre horaire.`;
+      }
     }
 
     // Validate full name
@@ -137,22 +230,7 @@ export default function StandardFormView({
     });
   };
 
-  // Get current date string for min constraint (travel cannot be in past)
-  // Get current date string for min constraint to avoid GMT/UTC mismatch on mobile (travel cannot be in past)
-  const getLocalDateString = (offsetDays = 0) => {
-    const d = new Date();
-    if (offsetDays !== 0) {
-      d.setDate(d.getDate() + offsetDays);
-    }
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const today = getLocalDateString(0);
-  const tomorrow = getLocalDateString(1);
-  const dayAfter = getLocalDateString(2);
+  // Note: Date and time helpers are located at the top of the component
 
   return (
     <div id="standard-form-view" className="flex flex-col min-h-screen bg-[#EEF2FF]">
@@ -228,16 +306,11 @@ export default function StandardFormView({
           </div>
           
           <div 
-            className={`flex items-center gap-3 bg-white rounded-xl px-3.5 py-3 transition-all relative overflow-hidden cursor-pointer ${
+            className={`flex items-center gap-3 bg-white rounded-xl px-3.5 py-2 transition-all ${
               errors.date ? 'border-2 border-red-500' : 'border-1.5 border-[#F4841C]'
             }`}
           >
-            <Calendar className="w-5 h-5 text-[#F4841C] flex-shrink-0 z-0" />
-            <span className="text-slate-800 text-sm font-semibold z-0">
-              {date ? date.split('-').reverse().join('/') : "Sélectionner une date..."}
-            </span>
-            
-            {/* The actual native input overlaying the whole card with zero opacity to intercept native mobile touches/taps instantly */}
+            <Calendar className="w-5 h-5 text-[#F4841C] flex-shrink-0" />
             <input 
               type="date"
               min={today}
@@ -247,7 +320,8 @@ export default function StandardFormView({
                 // Clear errors on change
                 if (errors.date) setErrors(prev => ({ ...prev, date: undefined }));
               }}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              className="w-full bg-transparent border-0 outline-none text-slate-800 text-sm font-semibold cursor-pointer min-h-[32px] focus:ring-0"
+              style={{ colorScheme: 'light' }}
             />
           </div>
           
@@ -284,26 +358,63 @@ export default function StandardFormView({
             
             <div className="flex gap-2.5 flex-wrap">
               {availableHours.map((hour) => {
+                const seatsTaken = bookedSeats[hour] || 0;
+                const limit = hoursCapacity[hour] || 8;
+                const seatsAvailable = Math.max(0, limit - seatsTaken);
+                const isFull = seatsAvailable === 0;
+                const isPassed = date === today && isHourPassed(hour);
+                const isDisabled = isFull || isPassed;
                 const isSelected = time === hour;
+                
                 return (
                   <button
                     key={hour}
                     type="button"
+                    disabled={isDisabled}
                     onClick={() => {
-                      setTime(hour);
-                      if (errors.time) setErrors(prev => ({ ...prev, time: undefined }));
+                      if (!isDisabled) {
+                        setTime(hour);
+                        if (errors.time) setErrors(prev => ({ ...prev, time: undefined }));
+                      }
                     }}
-                    className={`flex-1 min-w-[80px] text-center font-bold text-sm py-2 px-3.5 rounded-xl transition-all ${
-                      isSelected 
-                        ? 'bg-[#F4841C] text-white ring-2 ring-orange-300' 
-                        : 'bg-[#1B3080] text-indigo-200 border border-indigo-700/30 hover:bg-indigo-850'
+                    className={`flex-1 min-w-[125px] flex flex-col items-center justify-center py-2 px-3 rounded-xl transition-all font-sans cursor-pointer ${
+                      isDisabled
+                        ? 'bg-slate-850 text-slate-500 border border-slate-700/50 cursor-not-allowed opacity-45'
+                        : isSelected 
+                          ? 'bg-[#F4841C] text-white ring-2 ring-orange-400 scale-[1.02]' 
+                          : 'bg-[#1B3080] text-indigo-100 border border-indigo-700/30 hover:bg-[#253f9e]'
                     }`}
                   >
-                    {hour}
+                    <span className="text-sm font-extrabold tracking-wide">{hour}</span>
+                    <span className={`text-[9px] mt-0.5 font-bold tracking-normal uppercase ${
+                      isDisabled 
+                        ? 'text-red-400 font-black' 
+                        : isSelected 
+                          ? 'text-orange-100' 
+                          : 'text-[#F4841C]'
+                    }`}>
+                      {isPassed ? 'Passé' : isFull ? 'Complet' : `${seatsAvailable} ${seatsAvailable > 1 ? 'places dispo' : 'place dispo'}`}
+                    </span>
                   </button>
                 );
               })}
             </div>
+            
+            {availableHours.length > 0 && availableHours.every(h => {
+              const seatsTaken = bookedSeats[h] || 0;
+              const limit = hoursCapacity[h] || 8;
+              const isFull = seatsTaken >= limit;
+              const isPassed = date === today && isHourPassed(h);
+              return isFull || isPassed;
+            }) && (
+              <div className="mt-3 bg-red-950/60 border border-red-500/40 rounded-xl p-3.5 text-center flex flex-col items-center gap-1.5 animate-fadeIn">
+                <Flag className="w-4 h-4 text-red-400" />
+                <p className="text-red-200 text-xs font-black uppercase tracking-wider">Aucun départ disponible aujourd'hui</p>
+                <p className="text-red-300 text-[11px] leading-relaxed">
+                  Tous les départs pour aujourd'hui sont déjà complets ou expirés. Modifiez la date pour un autre jour ci-dessus.
+                </p>
+              </div>
+            )}
             
             {errors.time && (
               <p className="text-xs text-red-400 font-bold mt-2">{errors.time}</p>
