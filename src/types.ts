@@ -33,6 +33,7 @@ export interface BookingData {
     baggage: boolean;
     ac: boolean;
   };
+  voiceMessageUrl?: string;
   createdAt: string;
 }
 

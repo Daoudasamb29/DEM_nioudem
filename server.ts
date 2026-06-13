@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
+import fs from "fs";
 
 dotenv.config();
 
@@ -14,8 +15,38 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Support reading JSON bodies
-  app.use(express.json());
+  // Support reading JSON bodies with increased payload limit for voice recordings
+  app.use(express.json({ limit: "15mb" }));
+
+  // Create and serve custom uploads directory for voice messages (.wav format)
+  const recordsDir = path.join(process.cwd(), "records");
+  if (!fs.existsSync(recordsDir)) {
+    fs.mkdirSync(recordsDir, { recursive: true });
+  }
+  app.use("/records", express.static(recordsDir));
+
+  // Secure API to upload voice records as base64 and save as .wav
+  app.post("/api/upload-audio", (req, res) => {
+    try {
+      const { audio, filename } = req.body;
+      if (!audio || !filename) {
+        return res.status(400).json({ error: "Les données audio et le nom du fichier sont requis." });
+      }
+
+      // Remove prefix like data:audio/wav;base64, etc.
+      const base64Data = audio.replace(/^data:audio\/\w+;base64,/, "");
+      const buffer = Buffer.from(base64Data, 'base64');
+
+      const filePath = path.join(recordsDir, filename);
+      fs.writeFileSync(filePath, buffer);
+
+      console.log(`[Voice Recorder] Saved voice message: ${filePath}`);
+      res.json({ success: true, audioUrl: `/records/${filename}` });
+    } catch (err: any) {
+      console.error("[Voice Recorder] Error saving audio file:", err);
+      res.status(500).json({ error: "Impossible de sauvegarder le message vocal." });
+    }
+  });
 
   // Static logo routes for PWA offline installation and assets
   app.get("/logo.png", (req, res) => {
@@ -77,6 +108,8 @@ async function startServer() {
     const phoneValue = clientParams.jstelephone || clientParams.client_telephone || clientParams.phone || clientParams.telephone || "Non renseigné";
     const nameValue = clientParams.client_nom || clientParams.client_name || clientParams.name || clientParams.nom || clientParams.fullName || clientParams.fullname || clientParams.passenger_name || "Passager";
 
+    const audioVal = clientParams.message_vocal || clientParams.voiceMessageUrl || clientParams.voice_url || "";
+
     const payload = {
       service_id: sId,
       template_id: tId,
@@ -99,7 +132,19 @@ async function startServer() {
         fullName: nameValue,
         fullname: nameValue,
         passenger_name: nameValue,
-        to_email: toEmail
+        to_email: toEmail,
+        message_vocal: audioVal,
+        messagevocal: audioVal,
+        message_audio: audioVal,
+        vocal: audioVal,
+        audio: audioVal,
+        voice_url: audioVal,
+        voice_message_url: audioVal,
+        audio_url: audioVal,
+        url_vocal: audioVal,
+        lien_vocal: audioVal,
+        cloudinary: audioVal,
+        cloudinary_url: audioVal
       }
     };
 

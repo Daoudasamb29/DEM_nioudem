@@ -1,7 +1,7 @@
 {
   "name": "Remix: Remix: DEM",
   "description": "Application PWA installable de réservation de tickets de voyage au Sénégal (SenTicket). Dakar, Touba, Tivaouane, Thiès et Aéroport AIBD.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]

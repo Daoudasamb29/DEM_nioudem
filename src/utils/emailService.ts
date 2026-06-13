@@ -36,6 +36,19 @@ export interface EmailParams {
   telephone_client?: string;
   phone_client?: string;
   tel?: string;
+  message_vocal?: string;
+  messagevocal?: string;
+  vocal?: string;
+  audio?: string;
+  message_audio?: string;
+  voice_url?: string;
+  voiceMessageUrl?: string;
+  voice_message_url?: string;
+  audio_url?: string;
+  url_vocal?: string;
+  lien_vocal?: string;
+  cloudinary?: string;
+  cloudinary_url?: string;
 }
 
 /**
@@ -119,6 +132,8 @@ export async function sendReservationEmail(params: Omit<EmailParams, 'to_email'>
     const phoneValue = params.jstelephone || params.client_telephone || params.phone || params.telephone || "Non renseigné";
     const nameValue = (params as any).client_nom || (params as any).client_name || (params as any).name || (params as any).nom || (params as any).fullName || (params as any).fullname || (params as any).passenger_name || "Passager";
 
+    const audioVal = params.message_vocal || (params as any).voiceMessageUrl || (params as any).voice_url;
+
     const payload: EmailParams = {
       ...params,
       telephone: phoneValue,
@@ -137,7 +152,19 @@ export async function sendReservationEmail(params: Omit<EmailParams, 'to_email'>
       fullName: nameValue,
       fullname: nameValue,
       passenger_name: nameValue,
-      to_email: to_email
+      to_email: to_email,
+      message_vocal: audioVal,
+      messagevocal: audioVal,
+      message_audio: audioVal,
+      vocal: audioVal,
+      audio: audioVal,
+      voice_url: audioVal,
+      voice_message_url: audioVal,
+      audio_url: audioVal,
+      url_vocal: audioVal,
+      lien_vocal: audioVal,
+      cloudinary: audioVal,
+      cloudinary_url: audioVal
     };
     await emailjs.send(service_id, template_id, payload as any);
     console.log("Client-side direct EmailJS fallback succeeded!");

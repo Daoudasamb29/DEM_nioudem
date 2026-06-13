@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { ArrowLeft, Calendar, Clock, User, Phone, MapPin, Briefcase, Snowflake, Check, HelpCircle } from 'lucide-react';
+import VoiceRecorder from './VoiceRecorder';
 
 interface AibdFormViewProps {
   onBack: () => void;
@@ -16,6 +17,7 @@ interface AibdFormViewProps {
       baggage: boolean;
       ac: boolean;
     };
+    audioBase64?: string | null;
   }) => void;
   defaultPhone?: string;
   defaultFullName?: string;
@@ -45,6 +47,7 @@ export default function AibdFormView({
   // Options states (Baggage checked, AC unchecked by default)
   const [baggage, setBaggage] = useState(true);
   const [ac, setAc] = useState(false);
+  const [audioBase64, setAudioBase64] = useState<string | null>(null);
 
   const dateInputRef = useRef<HTMLInputElement>(null);
   const timeInputRef = useRef<HTMLInputElement>(null);
@@ -126,7 +129,8 @@ export default function AibdFormView({
       options: {
         baggage,
         ac
-      }
+      },
+      audioBase64
     });
   };
 
@@ -388,6 +392,9 @@ export default function AibdFormView({
             <p className="text-xs text-red-500 font-bold mt-1.5">{errors.departureAddress}</p>
           )}
         </div>
+
+        {/* VOICE MESSAGE RECORDER SECTION */}
+        <VoiceRecorder onAudioRecorded={(_, base64) => setAudioBase64(base64)} />
 
         {/* SECTION: OPTIONS SUPPLEMENTAIRES (CHECKBOXES CLIM & BAGAGES) */}
         <div className="bg-white rounded-2xl border border-indigo-100 p-4 shadow-sm">
