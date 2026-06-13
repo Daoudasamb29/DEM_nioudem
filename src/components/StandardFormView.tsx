@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Calendar, User, Phone, MapPin, Flag, HelpCircle } from 'lucide-react';
 import { chargerHorairesEtCapacites, obtenirPlacesOccupees } from '../supabase';
-import VoiceRecorder from './VoiceRecorder';
 
 interface StandardFormViewProps {
   from: string;
@@ -17,7 +16,6 @@ interface StandardFormViewProps {
     fullName: string;
     phone: string;
     departureAddress: string;
-    audioBase64?: string | null;
   }) => void;
   defaultPhone?: string;
   defaultFullName?: string;
@@ -50,7 +48,6 @@ export default function StandardFormView({
   const [hoursCapacity, setHoursCapacity] = useState<Record<string, number>>({});
   const [bookedSeats, setBookedSeats] = useState<Record<string, number>>({});
   const [loadingHours, setLoadingHours] = useState(false);
-  const [audioBase64, setAudioBase64] = useState<string | null>(null);
   
   const dateInputRef = useRef<HTMLInputElement>(null);
   
@@ -229,8 +226,7 @@ export default function StandardFormView({
       time,
       fullName: fullName.trim(),
       phone: `+221 ${phoneNumber.trim()}`,
-      departureAddress: departureAddress.trim(),
-      audioBase64
+      departureAddress: departureAddress.trim()
     });
   };
 
@@ -512,9 +508,6 @@ export default function StandardFormView({
             <p className="text-xs text-red-500 font-bold mt-1.5">{errors.departureAddress}</p>
           )}
         </div>
-
-        {/* VOICE MESSAGE RECORDER SECTION */}
-        <VoiceRecorder onAudioRecorded={(_, base64) => setAudioBase64(base64)} />
 
         {/* FIELD 6: DESTINATION (NON MODIFIABLE AVEC BADGE) */}
         <div className="bg-white rounded-2xl border border-indigo-100 p-4 shadow-sm">

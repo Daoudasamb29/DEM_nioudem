@@ -351,20 +351,7 @@ export default function TicketView({
               </div>
             )}
 
-            {booking.voiceMessageUrl && (
-              <div className="col-span-2 pt-2 pb-0.5" data-html2canvas-ignore="true">
-                <span className="text-[8.5px] text-[#F4841C] uppercase tracking-wider block font-extrabold mb-1">Message vocal associé</span>
-                <div className="flex items-center gap-2 bg-indigo-50/45 border border-indigo-100/50 rounded-xl p-2">
-                  <span className="text-xs flex-shrink-0 animate-pulse">🎤</span>
-                  <audio 
-                    src={booking.voiceMessageUrl} 
-                    controls 
-                    className="w-full h-7 outline-none text-xs bg-transparent"
-                    controlsList="nodownload"
-                  />
-                </div>
-              </div>
-            )}
+
           </div>
 
           {/* SEMI CIRCULAR HOLES FOR AUTHENTIC BOARDING PASS AESTHETICS */}

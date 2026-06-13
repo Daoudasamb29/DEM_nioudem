@@ -206,97 +206,7 @@ export default function App() {
     setScreen('aibd-form');
   };
 
-  // Helper to upload base64 audio directly to Cloudinary using unsigned preset 'vocal_preset'
-  const uploadAudioToCloudinary = async (base64Data: string): Promise<string | undefined> => {
-    try {
-      console.log("[Cloudinary Upload] Initiating audio upload... Data length:", base64Data.length);
-      
-      // Convert base64 format to Blob for a more reliable binary upload
-      let fileBlob: Blob | null = null;
-      try {
-        const parts = base64Data.split(',');
-        let mime = 'audio/wav';
-        let b64 = base64Data;
-        if (parts.length === 2) {
-          mime = parts[0].split(':')[1].split(';')[0];
-          b64 = parts[1];
-        }
-        const sliceSize = 512;
-        const byteCharacters = atob(b64);
-        const byteArrays = [];
-        for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
-          const slice = byteCharacters.slice(offset, offset + sliceSize);
-          const byteNumbers = new Array(slice.length);
-          for (let i = 0; i < slice.length; i++) {
-            byteNumbers[i] = slice.charCodeAt(i);
-          }
-          const byteArray = new Uint8Array(byteNumbers);
-          byteArrays.push(byteArray);
-        }
-        fileBlob = new Blob(byteArrays, { type: mime });
-        console.log("[Cloudinary Upload] Successfully converted base64 to Blob:", mime, fileBlob.size, "bytes");
-      } catch (blobError) {
-        console.warn("[Cloudinary Upload] Blob conversion failed, using raw base64 string:", blobError);
-      }
 
-      // We will try multiple combinations of formats and endpoints to ensure success on any configuration
-      const targets = [
-        // 1. Binary Blob to /video/upload (Standard for audio in Cloudinary)
-        { useBlob: true, endpoint: "https://api.cloudinary.com/v1_1/dph5skwuz/video/upload", extraFields: {} },
-        // 2. Binary Blob to generic /upload with resource_type: "video"
-        { useBlob: true, endpoint: "https://api.cloudinary.com/v1_1/dph5skwuz/upload", extraFields: { resource_type: "video" } },
-        // 3. Binary Blob to generic /upload with resource_type: "auto"
-        { useBlob: true, endpoint: "https://api.cloudinary.com/v1_1/dph5skwuz/upload", extraFields: { resource_type: "auto" } },
-        // 4. Base64 to /video/upload
-        { useBlob: false, endpoint: "https://api.cloudinary.com/v1_1/dph5skwuz/video/upload", extraFields: {} },
-        // 5. Binary Blob to /raw/upload (fallback if video/audio type is restricted in preset)
-        { useBlob: true, endpoint: "https://api.cloudinary.com/v1_1/dph5skwuz/raw/upload", extraFields: {} },
-        // 6. Base64 to generic /upload with auto
-        { useBlob: false, endpoint: "https://api.cloudinary.com/v1_1/dph5skwuz/upload", extraFields: { resource_type: "auto" } }
-      ];
-
-      for (let i = 0; i < targets.length; i++) {
-        const target = targets[i];
-        if (target.useBlob && !fileBlob) continue;
-
-        try {
-          const formData = new FormData();
-          const fileToUpload = target.useBlob ? fileBlob! : base64Data;
-          
-          formData.append("file", fileToUpload);
-          formData.append("upload_preset", "vocal_preset");
-          
-          Object.entries(target.extraFields).forEach(([key, val]) => {
-            formData.append(key, val as string);
-          });
-
-          console.log(`[Cloudinary Upload] Attempt ${i + 1}/${targets.length} to ${target.endpoint} (Blob: ${target.useBlob})...`);
-          
-          const response = await fetch(target.endpoint, {
-            method: "POST",
-            body: formData,
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            const resultUrl = data.secure_url || data.url;
-            if (resultUrl) {
-              console.log(`[Cloudinary Upload] Success on attempt ${i + 1}! URL:`, resultUrl);
-              return resultUrl;
-            }
-          } else {
-            const errText = await response.text();
-            console.warn(`[Cloudinary Upload] Attempt ${i + 1} failed. Status: ${response.status}. Msg:`, errText);
-          }
-        } catch (attemptError) {
-          console.warn(`[Cloudinary Upload] Attempt ${i + 1} encountered request error:`, attemptError);
-        }
-      }
-    } catch (err) {
-      console.error("[Cloudinary Upload] Major unexpected error:", err);
-    }
-    return undefined;
-  };
 
   // Submitting standard reservation ticket
   const handleStandardSubmit = async (data: {
@@ -308,20 +218,10 @@ export default function App() {
     fullName: string;
     phone: string;
     departureAddress: string;
-    audioBase64?: string | null;
   }) => {
     setLoadingOverlay(true);
     setOverlayMessage('Création de votre réservation en cours...');
     setEmailStatusMessage(null); // Clear previous status
-
-    let voiceUrl: string | undefined = undefined;
-    if (data.audioBase64) {
-      setOverlayMessage('Envoi du message vocal...');
-      voiceUrl = await uploadAudioToCloudinary(data.audioBase64);
-    }
-
-    setOverlayMessage('Création de votre réservation en cours...');
-    const absoluteVoiceUrl = voiceUrl;
 
     try {
       const { voyageur, reservation, reference } = await confirmerReservation({
@@ -343,7 +243,6 @@ export default function App() {
         db_id: reservation.id,
         tripType: 'standard',
         options: { baggage: false, ac: false },
-        voiceMessageUrl: absoluteVoiceUrl,
         createdAt: reservation.created_at || new Date().toISOString()
       };
 
@@ -367,8 +266,7 @@ export default function App() {
           prix_total: `${(data.price * 1).toLocaleString()} FCFA`,
           client_nom: data.fullName,
           client_telephone: data.phone,
-          jstelephone: clientPhone || data.phone || "Non renseigné",
-          message_vocal: absoluteVoiceUrl
+          jstelephone: clientPhone || data.phone || "Non renseigné"
         });
         setEmailStatusMessage("✅ Réservation confirmée ! Un e-mail de confirmation a été envoyé.");
       } catch (emailErr: any) {
@@ -388,7 +286,6 @@ export default function App() {
         id: fallbackRef,
         tripType: 'standard',
         options: { baggage: false, ac: false },
-        voiceMessageUrl: absoluteVoiceUrl,
         createdAt: new Date().toISOString()
       };
       const updated = [fallbackBooking, ...bookings];
@@ -409,8 +306,7 @@ export default function App() {
           prix_total: `${(data.price * 1).toLocaleString()} FCFA`,
           client_nom: data.fullName,
           client_telephone: data.phone,
-          jstelephone: clientPhone || data.phone || "Non renseigné",
-          message_vocal: absoluteVoiceUrl
+          jstelephone: clientPhone || data.phone || "Non renseigné"
         });
         setEmailStatusMessage("✅ Réservation enregistrée ! Un e-mail de confirmation a été envoyé.");
       } catch (emailErr: any) {
@@ -436,20 +332,10 @@ export default function App() {
       baggage: boolean;
       ac: boolean;
     };
-    audioBase64?: string | null;
   }) => {
     setLoadingOverlay(true);
     setOverlayMessage('Création de votre réservation spéciale Navette Aéroport...');
     setEmailStatusMessage(null); // Clear previous status
-
-    let voiceUrl: string | undefined = undefined;
-    if (data.audioBase64) {
-      setOverlayMessage('Envoi du message vocal...');
-      voiceUrl = await uploadAudioToCloudinary(data.audioBase64);
-    }
-
-    setOverlayMessage('Création de votre réservation spéciale Navette Aéroport...');
-    const absoluteVoiceUrl = voiceUrl;
 
     try {
       const { voyageur, reservation, reference } = await confirmerReservation({
@@ -470,7 +356,6 @@ export default function App() {
         id: reference,
         db_id: reservation.id,
         tripType: 'aibd',
-        voiceMessageUrl: absoluteVoiceUrl,
         createdAt: reservation.created_at || new Date().toISOString()
       };
 
@@ -494,8 +379,7 @@ export default function App() {
           prix_total: `${(data.price * 1).toLocaleString()} FCFA`,
           client_nom: data.fullName,
           client_telephone: data.phone,
-          jstelephone: clientPhone || data.phone || "Non renseigné",
-          message_vocal: absoluteVoiceUrl
+          jstelephone: clientPhone || data.phone || "Non renseigné"
         });
         setEmailStatusMessage("✅ Réservation Navette confirmée ! Un e-mail de confirmation a été envoyé.");
       } catch (emailErr: any) {
@@ -514,7 +398,6 @@ export default function App() {
         ...data,
         id: fallbackRef,
         tripType: 'aibd',
-        voiceMessageUrl: absoluteVoiceUrl,
         createdAt: new Date().toISOString()
       };
       const updated = [fallbackBooking, ...bookings];
@@ -535,8 +418,7 @@ export default function App() {
           prix_total: `${(data.price * 1).toLocaleString()} FCFA`,
           client_nom: data.fullName,
           client_telephone: data.phone,
-          jstelephone: clientPhone || data.phone || "Non renseigné",
-          message_vocal: absoluteVoiceUrl
+          jstelephone: clientPhone || data.phone || "Non renseigné"
         });
         setEmailStatusMessage("✅ Réservation Navette enregistrée ! Un e-mail de confirmation a été envoyé.");
       } catch (emailErr: any) {
