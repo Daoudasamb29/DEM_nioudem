@@ -1,8 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { Plane, Bus, Ticket, ChevronRight, ArrowRight, LogOut } from 'lucide-react';
 import { BookingData } from '../types';
-import senegalTravelBanner from '../assets/images/senegal_travel_banner_1779489253831.png';
 import logo from '../assets/images/logo.png';
+
+// Import new dynamic background images to cycle/slideshow
+import dakarImg from '../assets/images/Dakar.png';
+import aibdImg from '../assets/images/aibd.png';
+import thiesImg from '../assets/images/thies.png';
+import tivaouaneImg from '../assets/images/tivaouane.png';
+import toubaImg from '../assets/images/touba.png';
+
+const DESTINATIONS = [
+  { url: dakarImg, title: "Dakar", subtitle: "Capitale vibrante au bord de l'océan" },
+  { url: aibdImg, title: "AIBD", subtitle: "Aéroport international moderne" },
+  { url: thiesImg, title: "Thiès", subtitle: "Ville du rail chaleureuse et dynamique" },
+  { url: tivaouaneImg, title: "Tivaouane", subtitle: "Cité religieuse historique du pays" },
+  { url: toubaImg, title: "Touba", subtitle: "Métropole spirituelle et accueillante" }
+];
 
 interface HomeViewProps {
   onSelectStandardTrip: (from: string, to: string, price: number) => void;
@@ -27,6 +41,7 @@ export default function HomeView({
   // Track scroll position to power dynamic premium layout transitions
   const [scrollTop, setScrollTop] = useState(0);
   const [windowHeight, setWindowHeight] = useState(typeof window !== 'undefined' ? window.innerHeight : 800);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   useEffect(() => {
     const handleResize = () => {
@@ -34,6 +49,14 @@ export default function HomeView({
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    // Dynamically cycle matching background image index every 4 seconds
+    const interval = setInterval(() => {
+      setCurrentImageIndex((prev) => (prev + 1) % DESTINATIONS.length);
+    }, 4000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -80,13 +103,19 @@ export default function HomeView({
         className="fixed top-0 left-0 right-0 w-full overflow-hidden select-none pointer-events-none z-10 transition-all duration-75 ease-out"
       >
         {/* Dynamic Zoom & Parallax Image */}
-        <img 
-          src={senegalTravelBanner} 
-          alt="Voyage au Sénégal avec Niou Dem" 
-          referrerPolicy="no-referrer"
-          style={{ transform: `translateY(${parallaxY}px) scale(${heroScale})` }}
-          className="absolute inset-0 w-full h-full object-cover transition-transform duration-100 ease-out"
-        />
+        {DESTINATIONS.map((dest, idx) => (
+          <img 
+            key={idx}
+            src={dest.url} 
+            alt="Voyage au Sénégal avec Niou Dem" 
+            referrerPolicy="no-referrer"
+            style={{ 
+              transform: `translateY(${parallaxY}px) scale(${heroScale})`,
+              opacity: idx === currentImageIndex ? 1 : 0
+            }}
+            className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ease-in-out"
+          />
+        ))}
 
         {/* Dynamic dark overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-black/20 z-0 pointer-events-none"></div>
@@ -127,6 +156,45 @@ export default function HomeView({
                 </span>
                 <h2 className="text-white text-2xl font-black mt-1 leading-none tracking-tight">Où allez-vous ?</h2>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Destination Caption Pill floating bottom-right */}
+        <div 
+          style={{ 
+            transform: `translateY(${Math.max(-10, -scrollTop * 0.1)}px)`,
+            opacity: welcomeTextOpacity 
+          }}
+          className="absolute bottom-6 right-6 z-10 pointer-events-auto transition-all duration-75 ease-out"
+        >
+          <div className="bg-black/40 backdrop-blur-md p-3.5 rounded-2xl border border-white/10 shadow-lg flex flex-col items-end text-right min-w-[200px] max-w-[245px]">
+            {/* Sur-titre orange vif */}
+            <span className="text-[#F4841C] text-[8px] font-black uppercase tracking-widest leading-none mb-1 shadow-sm">
+              DESTINATION
+            </span>
+            {/* Titre de la destination */}
+            <span className="text-white text-sm font-black tracking-tight leading-tight">
+              {DESTINATIONS[currentImageIndex]?.title}
+            </span>
+            {/* Sous-titre d'accompagnement */}
+            <span className="text-indigo-200 text-[9px] mt-1.5 leading-snug w-full block truncate">
+              {DESTINATIONS[currentImageIndex]?.subtitle}
+            </span>
+
+            {/* Pagination dots indicator with subtle transition animations */}
+            <div className="flex items-center gap-1.5 mt-3.5">
+              {DESTINATIONS.map((_, dotIdx) => {
+                const isActive = dotIdx === currentImageIndex;
+                return (
+                  <div 
+                    key={dotIdx}
+                    className={`h-1 rounded-full transition-all duration-500 ease-in-out ${
+                      isActive ? 'w-4.5 bg-[#F4841C]' : 'w-1 bg-white/30'
+                    }`}
+                  />
+                );
+              })}
             </div>
           </div>
         </div>
