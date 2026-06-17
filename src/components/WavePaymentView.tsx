@@ -90,7 +90,8 @@ export default function WavePaymentView({ onBack, onConfirmPayment, priceToPay =
               rel="noopener noreferrer"
               referrerPolicy="no-referrer"
               id="wave-payment-direct-link"
-              className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-sky-400 to-[#1ea1f2] hover:from-sky-500 hover:to-[#1589d1] active:scale-[0.98] text-white font-black py-3.5 px-6 rounded-xl shadow-md transition-all duration-150 text-xs uppercase tracking-wider w-full"
+              style={{ backgroundColor: '#1ea1f2', color: '#ffffff' }}
+              className="inline-flex items-center justify-center gap-2 hover:bg-[#1589d1] active:scale-[0.98] text-white font-extrabold py-3.5 px-6 rounded-xl shadow-md transition-all duration-150 text-xs uppercase tracking-wider w-full text-center"
             >
               <span>Payer {priceToPay}F avec Wave</span>
               <ExternalLink className="w-4 h-4 text-white" />
