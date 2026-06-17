@@ -37,5 +37,5 @@ export interface BookingData {
   createdAt: string;
 }
 
-export type ScreenState = 'home' | 'standard-form' | 'aibd-form' | 'ticket' | 'my-tickets' | 'login';
+export type ScreenState = 'home' | 'standard-form' | 'aibd-form' | 'ticket' | 'my-tickets' | 'login' | 'wave-payment';
 

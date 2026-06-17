@@ -24,6 +24,7 @@ import AibdFormView from './components/AibdFormView';
 import TicketView from './components/TicketView';
 import MyTicketsView from './components/MyTicketsView';
 import LoginView from './components/LoginView';
+import WavePaymentView from './components/WavePaymentView';
 
 import { sendReservationEmail } from './utils/emailService';
 
@@ -39,6 +40,7 @@ export default function App() {
 
   const [bookings, setBookings] = useState<BookingData[]>([]);
   const [activeBooking, setActiveBooking] = useState<BookingData | null>(null);
+  const [pendingBookingData, setPendingBookingData] = useState<any | null>(null);
   const [emailStatusMessage, setEmailStatusMessage] = useState<string | null>(null);
   
   const [clientPhone, setClientPhone] = useState<string>(() => localStorage.getItem('dem_client_phone') || '');
@@ -208,7 +210,7 @@ export default function App() {
 
 
 
-  // Submitting standard reservation ticket
+  // Redirect to Wave payment screen first for standard reservation
   const handleStandardSubmit = async (data: {
     from: string;
     to: string;
@@ -219,106 +221,15 @@ export default function App() {
     phone: string;
     departureAddress: string;
   }) => {
-    setLoadingOverlay(true);
-    setOverlayMessage('Création de votre réservation en cours...');
-    setEmailStatusMessage(null); // Clear previous status
-
-    try {
-      const { voyageur, reservation, reference } = await confirmerReservation({
-        nom: data.fullName,
-        telephone: data.phone,
-        adresse: data.departureAddress,
-        villeDepart: data.from,
-        villeArrivee: data.to,
-        dateVoyage: data.date,
-        heureDepart: data.time,
-        trajetType: 'standard',
-        bagage: false,
-        clim: false
-      });
-
-      const newBooking: BookingData = {
-        ...data,
-        id: reference,
-        db_id: reservation.id,
-        tripType: 'standard',
-        options: { baggage: false, ac: false },
-        createdAt: reservation.created_at || new Date().toISOString()
-      };
-
-      // Push to stack
-      const updated = [newBooking, ...bookings];
-      setBookings(updated);
-      saveBookings(updated, clientPhone || undefined);
-
-      setActiveBooking(newBooking);
-      setScreen('ticket');
-
-      // Attempt to send confirmation email via EmailJS (non-blocking for screen transition)
-      try {
-        await sendReservationEmail({
-          reservation_code: reference,
-          trajet: `${data.from} → ${data.to}`,
-          date: data.date,
-          heure: data.time,
-          pickup: data.departureAddress,
-          passagers: 1,
-          prix_total: `${(data.price * 1).toLocaleString()} FCFA`,
-          client_nom: data.fullName,
-          client_telephone: data.phone,
-          jstelephone: clientPhone || data.phone || "Non renseigné"
-        });
-        setEmailStatusMessage("✅ Réservation confirmée ! Un e-mail de confirmation a été envoyé.");
-      } catch (emailErr: any) {
-        console.error("EmailJS standard booking notification skipped/failed:", emailErr);
-        setEmailStatusMessage("✅ Réservation confirmée avec succès ! (Échec de l'envoi de l'e-mail)");
-      }
-    } catch (err: any) {
-      console.error("Erreur de réservation standard avec base distante, bascule locale:", err);
-      
-      const datePart = data.date && data.date.includes('-') 
-        ? data.date.split('-').reverse().join('') 
-        : (data.date || '000000').replace(/[^0-9]/g, '');
-      const fallbackRef = `TK-${datePart || '000000'}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
-      
-      const fallbackBooking: BookingData = {
-        ...data,
-        id: fallbackRef,
-        tripType: 'standard',
-        options: { baggage: false, ac: false },
-        createdAt: new Date().toISOString()
-      };
-      const updated = [fallbackBooking, ...bookings];
-      setBookings(updated);
-      saveBookings(updated, clientPhone || undefined);
-      setActiveBooking(fallbackBooking);
-      setScreen('ticket');
-
-      // Attempt to send confirmation email anyway for offline mode
-      try {
-        await sendReservationEmail({
-          reservation_code: fallbackRef,
-          trajet: `${data.from} → ${data.to}`,
-          date: data.date,
-          heure: data.time,
-          pickup: data.departureAddress,
-          passagers: 1,
-          prix_total: `${(data.price * 1).toLocaleString()} FCFA`,
-          client_nom: data.fullName,
-          client_telephone: data.phone,
-          jstelephone: clientPhone || data.phone || "Non renseigné"
-        });
-        setEmailStatusMessage("✅ Réservation enregistrée ! Un e-mail de confirmation a été envoyé.");
-      } catch (emailErr: any) {
-        console.error("EmailJS offline booking notification failed:", emailErr);
-        setEmailStatusMessage("✅ Réservation enregistrée avec succès !");
-      }
-    } finally {
-      setLoadingOverlay(false);
-    }
+    setPendingBookingData({
+      ...data,
+      tripType: 'standard',
+      options: { baggage: false, ac: false }
+    });
+    setScreen('wave-payment');
   };
 
-  // Submitting special AIBD reservation ticket
+  // Redirect to Wave payment screen first for special AIBD reservation
   const handleAibdSubmit = async (data: {
     from: string;
     to: string;
@@ -333,9 +244,23 @@ export default function App() {
       ac: boolean;
     };
   }) => {
+    setPendingBookingData({
+      ...data,
+      tripType: 'aibd'
+    });
+    setScreen('wave-payment');
+  };
+
+  // Unified payment/booking confirmation processor
+  const processFinalBookingConfirm = async () => {
+    if (!pendingBookingData) return;
+
     setLoadingOverlay(true);
-    setOverlayMessage('Création de votre réservation spéciale Navette Aéroport...');
+    setOverlayMessage('Création de votre réservation en cours...');
     setEmailStatusMessage(null); // Clear previous status
+
+    const data = pendingBookingData;
+    const isAibd = data.tripType === 'aibd';
 
     try {
       const { voyageur, reservation, reference } = await confirmerReservation({
@@ -346,16 +271,15 @@ export default function App() {
         villeArrivee: data.to,
         dateVoyage: data.date,
         heureDepart: data.time,
-        trajetType: 'aibd',
-        bagage: data.options.baggage,
-        clim: data.options.ac
+        trajetType: data.tripType,
+        bagage: isAibd ? !!data.options?.baggage : false,
+        clim: isAibd ? !!data.options?.ac : false
       });
 
       const newBooking: BookingData = {
         ...data,
         id: reference,
         db_id: reservation.id,
-        tripType: 'aibd',
         createdAt: reservation.created_at || new Date().toISOString()
       };
 
@@ -365,6 +289,7 @@ export default function App() {
       saveBookings(updated, clientPhone || undefined);
 
       setActiveBooking(newBooking);
+      setPendingBookingData(null);
       setScreen('ticket');
 
       // Attempt to send confirmation email via EmailJS (non-blocking for screen transition)
@@ -381,13 +306,13 @@ export default function App() {
           client_telephone: data.phone,
           jstelephone: clientPhone || data.phone || "Non renseigné"
         });
-        setEmailStatusMessage("✅ Réservation Navette confirmée ! Un e-mail de confirmation a été envoyé.");
+        setEmailStatusMessage(isAibd ? "✅ Réservation Navette confirmée ! Un e-mail de confirmation a été envoyé." : "✅ Réservation confirmée ! Un e-mail de confirmation a été envoyé.");
       } catch (emailErr: any) {
-        console.error("EmailJS AIBD booking notification skipped/failed:", emailErr);
-        setEmailStatusMessage("✅ Réservation confirmée avec succès ! (Échec de l'envoi de l'e-mail)");
+        console.error("EmailJS reservation notification failed/skipped:", emailErr);
+        setEmailStatusMessage(isAibd ? "✅ Réservation Navette confirmée avec succès ! (Échec de l'envoi de l'e-mail)" : "✅ Réservation confirmée avec succès ! (Échec de l'envoi de l'e-mail)");
       }
     } catch (err: any) {
-      console.error("Erreur de réservation Navette avec base distante, bascule locale:", err);
+      console.error("Erreur de réservation avec base distante, bascule locale:", err);
       
       const datePart = data.date && data.date.includes('-') 
         ? data.date.split('-').reverse().join('') 
@@ -397,13 +322,13 @@ export default function App() {
       const fallbackBooking: BookingData = {
         ...data,
         id: fallbackRef,
-        tripType: 'aibd',
         createdAt: new Date().toISOString()
       };
       const updated = [fallbackBooking, ...bookings];
       setBookings(updated);
       saveBookings(updated, clientPhone || undefined);
       setActiveBooking(fallbackBooking);
+      setPendingBookingData(null);
       setScreen('ticket');
 
       // Attempt to send confirmation email anyway for offline mode
@@ -420,10 +345,10 @@ export default function App() {
           client_telephone: data.phone,
           jstelephone: clientPhone || data.phone || "Non renseigné"
         });
-        setEmailStatusMessage("✅ Réservation Navette enregistrée ! Un e-mail de confirmation a été envoyé.");
+        setEmailStatusMessage(isAibd ? "✅ Réservation Navette enregistrée ! Un e-mail de confirmation a été envoyé." : "✅ Réservation enregistrée ! Un e-mail de confirmation a été envoyé.");
       } catch (emailErr: any) {
-        console.error("EmailJS offline navette booking notification failed:", emailErr);
-        setEmailStatusMessage("✅ Réservation Navette confirmée avec succès !");
+        console.error("EmailJS offline reservation notification failed:", emailErr);
+        setEmailStatusMessage(isAibd ? "✅ Réservation Navette enregistrée avec succès !" : "✅ Réservation enregistrée avec succès !");
       }
     } finally {
       setLoadingOverlay(false);
@@ -540,6 +465,29 @@ export default function App() {
                 defaultPhone={clientPhone}
                 defaultFullName={clientFullName}
                 onValueChange={handleFormValueChange}
+              />
+            </motion.div>
+          )}
+
+          {screen === 'wave-payment' && pendingBookingData && (
+            <motion.div
+              key="wave-payment"
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              variants={pageVariants}
+              className="flex-1 h-full"
+            >
+              <WavePaymentView
+                priceToPay={100}
+                onConfirmPayment={processFinalBookingConfirm}
+                onBack={() => {
+                  if (pendingBookingData.tripType === 'standard') {
+                    setScreen('standard-form');
+                  } else {
+                    setScreen('aibd-form');
+                  }
+                }}
               />
             </motion.div>
           )}
