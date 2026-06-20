@@ -77,6 +77,9 @@ CREATE TABLE IF NOT EXISTS voyageurs (
   nom TEXT NOT NULL,
   telephone TEXT NOT NULL,
   adresse TEXT NOT NULL,
+  "Destination" TEXT,
+  "Date / heure" TIMESTAMP WITH TIME ZONE,
+  "Référence de réservation" TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -336,6 +339,52 @@ export async function obtenirPlacesOccupees(date: string, from: string, to: stri
 }
 
 /**
+ * Formate une date et une heure en chaîne timestamptz valide pour PostgreSQL / Supabase.
+ * Prend en charge les formats de date "YYYY-MM-DD" et d'heure comme "14:30" ou "14h30".
+ * Retourne une chaîne au format ISO 8601 (ex : "2026-06-20T14:30:00.000Z") toujours valide.
+ */
+function formatToTimestamptz(dateVoyage: string, heureDepart: string): string {
+  try {
+    if (!dateVoyage) {
+      return new Date().toISOString();
+    }
+    const cleanDate = dateVoyage.trim();
+    let cleanHour = (heureDepart || "00:00").trim().replace('h', ':').replace('H', ':');
+    
+    const timeMatch = cleanHour.match(/^(\d{1,2})[:](\d{2})/);
+    if (timeMatch) {
+      const hh = timeMatch[1].padStart(2, '0');
+      const mm = timeMatch[2].padStart(2, '0');
+      cleanHour = `${hh}:${mm}:00`;
+    } else {
+      const digits = cleanHour.match(/\d+/g);
+      if (digits && digits.length >= 1) {
+        const hh = digits[0].padStart(2, '0');
+        const mm = (digits[1] || "00").padStart(2, '0');
+        cleanHour = `${hh}:${mm}:00`;
+      } else {
+        cleanHour = "00:00:00";
+      }
+    }
+    
+    const combinedISO = `${cleanDate}T${cleanHour}`;
+    const parsedDate = new Date(combinedISO);
+    if (!isNaN(parsedDate.getTime())) {
+      return parsedDate.toISOString();
+    }
+    
+    const spaceCombinedStr = `${cleanDate} ${cleanHour}`;
+    const parsedDateFallback = new Date(spaceCombinedStr);
+    if (!isNaN(parsedDateFallback.getTime())) {
+      return parsedDateFallback.toISOString();
+    }
+  } catch (error) {
+    console.error("Erreur lors du formatage de la date/heure pour timestamptz :", error);
+  }
+  return new Date().toISOString();
+}
+
+/**
  * 3. confirmerReservation({ nom, telephone, adresse, villeDepart, villeArrivee, dateVoyage, heureDepart, trajetType, bagage, clim })
  * Fait deux inserts dans l'ordre: voyageurs, puis reservations avec voyageur_id.
  * Génère la référence : TK-JJMMAA-XXX (XXX = 3 chiffres aléatoires)
@@ -368,6 +417,7 @@ export async function confirmerReservation(params: {
   // XXX random digits tracker (000-999)
   const randPart = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
   const reference = `TK-${datePart}-${randPart}`;
+  const formattedDateTime = formatToTimestamptz(params.dateVoyage, params.heureDepart);
 
   const client = getSupabaseClient();
   if (!client) {
@@ -379,6 +429,9 @@ export async function confirmerReservation(params: {
       nom: params.nom,
       telephone: params.telephone,
       adresse: params.adresse,
+      Destination: params.villeArrivee,
+      "Date / heure": formattedDateTime,
+      "Référence de réservation": reference,
       created_at: new Date().toISOString()
     };
     const pseudoReservation = {
@@ -408,12 +461,15 @@ export async function confirmerReservation(params: {
         id: voyageurId,
         nom: params.nom,
         telephone: params.telephone,
-        adresse: params.adresse
+        adresse: params.adresse,
+        Destination: params.villeArrivee,
+        "Date / heure": formattedDateTime,
+        "Référence de réservation": reference
       }])
       .select();
 
     if (vError) throw vError;
-    const insertedVoyageur = vData && vData[0] ? vData[0] : { id: voyageurId, nom: params.nom, telephone: params.telephone, adresse: params.adresse };
+    const insertedVoyageur = vData && vData[0] ? vData[0] : { id: voyageurId, nom: params.nom, telephone: params.telephone, adresse: params.adresse, Destination: params.villeArrivee, "Date / heure": formattedDateTime, "Référence de réservation": reference };
 
     // 2. Insert Reservation (Referenced with voyageur ID)
     const reservationId = generateUUID();
@@ -460,6 +516,9 @@ export async function confirmerReservation(params: {
       nom: params.nom,
       telephone: params.telephone,
       adresse: params.adresse,
+      Destination: params.villeArrivee,
+      "Date / heure": formattedDateTime,
+      "Référence de réservation": reference,
       created_at: new Date().toISOString()
     };
     const pseudoReservation = {
